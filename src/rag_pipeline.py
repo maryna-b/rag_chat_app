@@ -1,50 +1,51 @@
 """
-RAG Pipeline module for implementing retrieval-augmented generation.
+RAG Pipeline module implementing retrieval-augmented generation.
+Refactored to follow SOLID principles with dependency injection.
 """
-import os
-from typing import List, Dict, Any
-from langchain.schema import Document
+from typing import Dict, Any
 from langchain_openai import ChatOpenAI
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
-from document_processor import DocumentProcessor
-from vector_store import VectorStoreManager
+
+from .interfaces import RAGInterface, LoggerInterface
+from .config import RAGConfig
+from .document_processor import DocumentPipeline
 
 
-class RAGPipeline:
+class RAGPipeline(RAGInterface):
+    """Main RAG pipeline implementing question-answering over documents."""
+    
     def __init__(self, 
-                 model_name: str = "gpt-3.5-turbo",
-                 temperature: float = 0.1):
-        """
-        Initialize the RAG pipeline.
+                 config: RAGConfig,
+                 document_pipeline: DocumentPipeline,
+                 vector_store_manager,
+                 logger: LoggerInterface):
+        self._config = config
+        self._document_pipeline = document_pipeline
+        self._vector_store_manager = vector_store_manager
+        self._logger = logger
         
-        Args:
-            model_name: OpenAI model to use for generation
-            temperature: Temperature for response generation
-        """
-        self.model_name = model_name
-        self.temperature = temperature
-        
-        # Initialize components
-        self.document_processor = DocumentProcessor()
-        self.vector_manager = VectorStoreManager()
-        self.llm = ChatOpenAI(
-            model_name=model_name,
-            temperature=temperature
+        # Initialize LLM
+        self._llm = ChatOpenAI(
+            model_name=config.openai_model,
+            temperature=config.openai_temperature
         )
         
-        # Initialize vector store
-        self.vector_store = None
-        self.retriever = None
-        self.qa_chain = None
+        # Initialize components
+        self._vector_store = None
+        self._retriever = None
+        self._qa_chain = None
         
         # Custom prompt template
-        self.prompt_template = PromptTemplate(
+        self._prompt_template = PromptTemplate(
             input_variables=["context", "question"],
             template="""Use the following pieces of context from meeting documents to answer the question. 
-Focus only on information directly relevant to the question asked.
-If you don't know the answer based on the context, just say that you don't know.
-Provide a clear, well-formatted response.
+
+IMPORTANT INSTRUCTIONS:
+- Only use information that is directly relevant to answer the specific question
+- If the context does not contain information to answer the question, respond with: "I don't have information about this in the meeting documents."
+- If you provide an answer based on the context, make sure it's actually supported by the provided text
+- Do not make assumptions or provide general knowledge not found in the context
 
 Context from meeting documents:
 {context}
@@ -54,183 +55,186 @@ Question: {question}
 Answer:"""
         )
     
-    def setup_vector_store(self, data_directory: str = "data") -> bool:
-        """
-        Set up the vector store with documents from the specified directory.
-        
-        Args:
-            data_directory: Directory containing the documents
-            
-        Returns:
-            True if successful, False otherwise
-        """
+    def initialize(self, data_source: str) -> bool:
+        """Initialize the RAG system with documents from data source."""
         try:
-            print(f"Setting up vector store from: {data_directory}")
+            self._logger.info(f"Initializing RAG system from: {data_source}")
             
             # Process documents
-            documents = self.document_processor.process_documents(data_directory)
+            documents = self._document_pipeline.process_directory(data_source)
             
             if not documents:
-                print("No documents found to process")
+                self._logger.warning("No documents found to process")
                 return False
             
             # Create or load vector store
-            self.vector_store = self.vector_manager.get_or_create_vector_store(documents)
+            self._vector_store = self._vector_store_manager.get_or_create_store(documents)
             
-            # Create retriever with more selective parameters
-            self.retriever = self.vector_store.as_retriever(
-                search_type="similarity_score_threshold",
-                search_kwargs={
-                    "k": 3,  # Reduce number of chunks
-                    "score_threshold": 0.7  # Only include highly relevant chunks
-                }
+            # Create retriever - use basic similarity for more reliable results
+            # The score threshold approach was too restrictive
+            self._retriever = self._vector_store.as_retriever(
+                search_type="similarity",
+                search_kwargs={"k": self._config.search_k}
             )
             
-            print(f"Vector store setup complete with {len(documents)} document chunks")
+            self._logger.info("Using similarity-based retrieval for reliable source citations")
+            
+            self._logger.info(f"RAG system initialized with {len(documents)} document chunks")
             return True
             
         except Exception as e:
-            print(f"Error setting up vector store: {str(e)}")
+            self._logger.error("Failed to initialize RAG system", e)
             return False
     
-    def create_qa_chain(self):
+    def _create_qa_chain(self):
         """Create the question-answering chain."""
-        if not self.retriever:
-            raise ValueError("Vector store not initialized. Call setup_vector_store first.")
+        if not self._retriever:
+            raise ValueError("Vector store not initialized. Call initialize first.")
         
-        self.qa_chain = RetrievalQA.from_chain_type(
-            llm=self.llm,
+        self._qa_chain = RetrievalQA.from_chain_type(
+            llm=self._llm,
             chain_type="stuff",
-            retriever=self.retriever,
-            chain_type_kwargs={"prompt": self.prompt_template},
+            retriever=self._retriever,
+            chain_type_kwargs={"prompt": self._prompt_template},
             return_source_documents=True
         )
         
-        print("QA chain created successfully")
+        self._logger.debug("QA chain created successfully")
     
     def query(self, question: str) -> Dict[str, Any]:
-        """
-        Query the RAG pipeline with a question.
-        
-        Args:
-            question: User's question
-            
-        Returns:
-            Dictionary containing answer and source information
-        """
-        if not self.qa_chain:
-            self.create_qa_chain()
+        """Query the RAG pipeline with a question."""
+        if not self._qa_chain:
+            self._create_qa_chain()
         
         try:
-            # Get response from QA chain
-            result = self.qa_chain({"query": question})
+            self._logger.debug(f"Processing query: {question}")
             
-            # Check if we got any source documents
+            # Get response from QA chain
+            result = self._qa_chain({"query": question})
             source_docs = result.get("source_documents", [])
             
-            # If no documents found with similarity threshold, try regular similarity search
-            if not source_docs:
-                print("No documents found with similarity threshold, trying regular search...")
-                regular_retriever = self.vector_store.as_retriever(
-                    search_type="similarity",
-                    search_kwargs={"k": 2}
-                )
-                # Create a new QA chain with regular retriever
-                from langchain.chains import RetrievalQA
-                fallback_chain = RetrievalQA.from_chain_type(
-                    llm=self.llm,
-                    chain_type="stuff",
-                    retriever=regular_retriever,
-                    chain_type_kwargs={"prompt": self.prompt_template},
-                    return_source_documents=True
-                )
-                result = fallback_chain({"query": question})
-                source_docs = result.get("source_documents", [])
+            self._logger.debug(f"Search returned {len(source_docs)} source documents")
             
-            # Format response
-            response = {
-                "answer": result["result"],
-                "sources": [],
-                "source_documents": source_docs
-            }
+            # Log source document details for debugging
+            if source_docs:
+                for i, doc in enumerate(source_docs):
+                    self._logger.debug(f"Source {i+1}: {doc.metadata.get('source', 'Unknown')} - {len(doc.page_content)} chars")
+            else:
+                self._logger.warning("No source documents returned - this will result in no citations")
             
-            # Extract source information with better formatting
-            for doc in source_docs:
-                # Clean up the content preview
-                content = doc.page_content.strip()
-                preview = content[:150] + "..." if len(content) > 150 else content
-                
-                source_info = {
-                    "filename": doc.metadata.get("source", "Unknown"),
-                    "content_preview": preview
-                }
-                response["sources"].append(source_info)
+            # Format response with smart citation filtering
+            response = self._format_response_with_validation(result, source_docs, question)
+            self._logger.info(f"Query processed successfully with {len(response['sources'])} relevant sources")
             
             return response
             
         except Exception as e:
+            self._logger.error(f"Query processing failed: {question}", e)
             return {
                 "answer": f"Sorry, I encountered an error: {str(e)}",
                 "sources": [],
                 "source_documents": []
             }
     
-    def get_relevant_documents(self, question: str, k: int = 4) -> List[Document]:
-        """
-        Get relevant documents for a question without generating an answer.
+    
+    def _format_response_with_validation(self, result: Dict, source_docs: list, question: str) -> Dict[str, Any]:
+        """Format response with smart citation validation."""
+        answer = result["result"]
         
-        Args:
-            question: User's question
-            k: Number of documents to retrieve
+        # Check if the answer indicates no relevant information was found
+        no_info_indicators = [
+            "don't have information",
+            "no mention",
+            "not mentioned", 
+            "no information",
+            "cannot determine",
+            "not possible to determine",
+            "based on the information provided",
+            "there is no mention",
+            "i don't have information",
+            "no information about",
+            "not mentioned in"
+        ]
+        
+        answer_lower = answer.lower()
+        has_no_info = any(indicator in answer_lower for indicator in no_info_indicators)
+        
+        if has_no_info:
+            self._logger.debug("Answer indicates no relevant information found - filtering out citations")
+            return {
+                "answer": answer,
+                "sources": [],
+                "source_documents": []
+            }
+        
+        # Additional check: see if answer actually references content from the sources
+        if source_docs:
+            content_overlap = self._check_content_relevance(answer, source_docs, question)
+            if not content_overlap:
+                self._logger.debug("No content overlap detected - filtering out citations")
+                return {
+                    "answer": answer,
+                    "sources": [],
+                    "source_documents": []
+                }
+        
+        # If answer seems to reference the context, include sources
+        return self._format_response(result, source_docs)
+    
+    def _check_content_relevance(self, answer: str, source_docs: list, question: str) -> bool:
+        """Check if the answer actually references content from the source documents."""
+        if not source_docs:
+            return False
+        
+        # Extract key terms from the question (simple approach)
+        question_words = set(question.lower().split())
+        # Remove common words
+        stop_words = {'who', 'what', 'where', 'when', 'why', 'how', 'is', 'are', 'was', 'were', 'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'up', 'about', 'into', 'through', 'during'}
+        question_keywords = question_words - stop_words
+        
+        # Check if any source document contains keywords from the question AND the answer references those docs
+        for doc in source_docs:
+            doc_words = set(doc.page_content.lower().split())
+            # If document contains question keywords AND answer is longer than a simple "no info" response
+            if question_keywords.intersection(doc_words) and len(answer) > 50:
+                return True
+        
+        return False
+    
+    def _format_response(self, result: Dict, source_docs: list) -> Dict[str, Any]:
+        """Format the response with detailed source information."""
+        response = {
+            "answer": result["result"],
+            "sources": [],
+            "source_documents": source_docs
+        }
+        
+        # Extract and deduplicate source information
+        seen_sources = set()
+        
+        for i, doc in enumerate(source_docs):
+            content = doc.page_content.strip()
+            filename = doc.metadata.get("source", "Unknown")
             
-        Returns:
-            List of relevant documents
-        """
-        if not self.retriever:
-            raise ValueError("Vector store not initialized. Call setup_vector_store first.")
+            # Create a key to avoid duplicate sources from same file
+            source_key = f"{filename}_{content[:50]}"
+            
+            if source_key not in seen_sources:
+                seen_sources.add(source_key)
+                
+                # Create more detailed preview
+                preview = content[:200] + "..." if len(content) > 200 else content
+                
+                source_info = {
+                    "filename": filename,
+                    "content_preview": preview,
+                    "chunk_id": doc.metadata.get("chunk_id", "N/A"),
+                    "relevance_rank": i + 1
+                }
+                response["sources"].append(source_info)
         
-        return self.retriever.get_relevant_documents(question)
-
-
-def main():
-    """Test the RAG pipeline"""
-    # Check if OpenAI API key is set
-    if not os.getenv("OPENAI_API_KEY"):
-        print("ERROR: Please set your OPENAI_API_KEY environment variable")
-        return
-    
-    # Initialize RAG pipeline
-    rag = RAGPipeline()
-    
-    # Setup vector store
-    if not rag.setup_vector_store():
-        print("Failed to setup vector store")
-        return
-    
-    # Test queries
-    test_questions = [
-        "What budget information was discussed in the meetings?",
-        "Who are the team members mentioned?",
-        "What are the main action items?",
-        "When is the next meeting scheduled?"
-    ]
-    
-    print("\nTesting RAG Pipeline:")
-    print("=" * 50)
-    
-    for question in test_questions:
-        print(f"\nQuestion: {question}")
-        print("-" * 30)
+        # Log source information for debugging
+        self._logger.debug(f"Formatted {len(response['sources'])} unique sources")
         
-        response = rag.query(question)
-        print(f"Answer: {response['answer']}")
-        
-        if response['sources']:
-            print("\nSources:")
-            for i, source in enumerate(response['sources'], 1):
-                print(f"{i}. {source['filename']}")
-                print(f"   Preview: {source['content_preview']}")
+        return response
 
-
-if __name__ == "__main__":
-    main()
