@@ -1,6 +1,3 @@
-"""
-Configuration management following single responsibility principle.
-"""
 import os
 from typing import Any, Dict
 from dataclasses import dataclass

@@ -1,7 +1,3 @@
-"""
-RAG Chat App - Main Streamlit Application
-Refactored to use SOLID principles and proper dependency injection.
-"""
 import os
 import sys
 import streamlit as st

@@ -1,7 +1,3 @@
-"""
-RAG Pipeline module implementing retrieval-augmented generation.
-Refactored to follow SOLID principles with dependency injection.
-"""
 from typing import Dict, Any
 from langchain_openai import ChatOpenAI
 from langchain.chains import RetrievalQA

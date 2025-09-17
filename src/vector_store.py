@@ -1,7 +1,3 @@
-"""
-Vector store module for handling embeddings and Chroma database operations.
-Refactored to follow SOLID principles with proper abstractions.
-"""
 import os
 from typing import List, Optional, Any
 from langchain.schema import Document

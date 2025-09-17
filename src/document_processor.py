@@ -1,7 +1,3 @@
-"""
-Document processing module for chunking text documents.
-Follows single responsibility principle - only handles document chunking.
-"""
 from typing import List
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document

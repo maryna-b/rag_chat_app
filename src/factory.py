@@ -1,7 +1,3 @@
-"""
-Factory pattern implementation for creating and wiring RAG system components.
-Follows dependency inversion principle.
-"""
 from .config import ConfigurationManager, RAGConfig
 from .logger import RAGLogger
 from .document_loader import TextDocumentLoader

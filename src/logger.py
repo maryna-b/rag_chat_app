@@ -1,6 +1,3 @@
-"""
-Logging system following single responsibility principle.
-"""
 import logging
 import sys
 from typing import Optional

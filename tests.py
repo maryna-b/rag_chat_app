@@ -1,7 +1,3 @@
-"""
-Comprehensive test suite for the refactored RAG chat app.
-Consolidates all testing functionality into a single file.
-"""
 import os
 import sys
 import traceback

@@ -1,6 +1,3 @@
-"""
-Document loading functionality following single responsibility principle.
-"""
 import os
 from typing import List
 from langchain.schema import Document
