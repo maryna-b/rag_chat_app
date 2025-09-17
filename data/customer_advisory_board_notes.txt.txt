@@ -1,0 +1,12 @@
+Customer Advisory Board Meeting – October 28, 2024
+Attendees: Sarah Chen, Robert Chen, Maria Rodriguez, plus 6 enterprise clients
+
+Highlights:
+- Clients praised the new mobile app but requested a dark mode.
+- Major concern: Real-time analytics dashboard latency during peak hours.
+- TechCorp suggested adding predictive churn modeling.
+- Agreement to pilot a European data center for GDPR compliance.
+Next Steps:
+- Lisa to explore dark mode designs.
+- Mike to investigate latency issues.
+- Maria to coordinate predictive churn model beta testers.

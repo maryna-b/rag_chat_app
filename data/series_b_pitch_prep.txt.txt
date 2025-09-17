@@ -1,0 +1,10 @@
+Series B Pitch Preparation – November 5, 2024
+Owner: Sarah Chen
+
+Key Points:
+- Target: $20M funding round led by Summit Ventures.
+- Highlight 15% QoQ revenue growth and $2.3M Q3 revenue.
+- Showcase TechCorp deal ($500K ARR) and 50K mobile downloads.
+- Emphasize engineering scalability: microservices and 60% downtime reduction.
+- Risk: Hiring competitive backend talent.
+- Visuals: Include customer health score improvements and EU expansion roadmap.
