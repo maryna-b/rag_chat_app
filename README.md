@@ -2,9 +2,6 @@
 
 A Retrieval-Augmented Generation (RAG) chatbot that allows you to ask questions about your documents and get intelligent answers with source citations.
 
-## Deployed Demo
-https://demo-rag-chat.streamlit.app/
-
 ## Features
 - **Document Processing**: Automatically loads and processes text documents from the data folder
 - **Smart Search**: Uses vector embeddings to find relevant document sections
