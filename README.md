@@ -84,3 +84,30 @@ python tests.py
 Simply place your text files in the `data/` folder. Supported formats:
 - `.txt` files
 - The app will automatically process them when you run it
+
+## Deployment to Streamlit Cloud
+
+### Step 1: Push to GitHub
+1. Remove your `.env` file from the repo (it's already in `.gitignore`)
+2. Push your code to a public GitHub repository
+
+### Step 2: Deploy on Streamlit Cloud
+1. Go to [share.streamlit.io](https://share.streamlit.io)
+2. Connect your GitHub repository
+3. Set main file path: `main.py`
+
+### Step 3: Add Secrets
+In your Streamlit Cloud app:
+1. Go to **Settings** → **Secrets**
+2. Add your configuration:
+```toml
+OPENAI_API_KEY = "sk-your-actual-api-key-here"
+
+# Optional: Override settings for production
+OPENAI_MODEL = "gpt-4"
+CHUNK_SIZE = "300"
+SEARCH_K = "1"
+```
+
+### Step 4: Deploy
+Your app will automatically deploy and be publicly accessible while keeping your API key secure!

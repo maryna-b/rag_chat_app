@@ -41,25 +41,43 @@ class RAGConfig:
 
 class ConfigurationManager(ConfigurationInterface):
     """Manages application configuration with validation."""
-    
+
     def __init__(self):
         load_dotenv()
         self._config = self._load_config()
-    
+
+    def _get_config_value(self, key: str, default: str = "") -> str:
+        """Get configuration value from environment variables or Streamlit secrets."""
+        # Try environment variables first (for local development)
+        value = os.getenv(key, "")
+
+        # If not found and we're in Streamlit, try st.secrets
+        if not value:
+            try:
+                import streamlit as st
+                if hasattr(st, 'secrets') and key in st.secrets:
+                    value = st.secrets[key]
+            except ImportError:
+                pass  # Not in Streamlit environment
+            except Exception:
+                pass  # Secrets not available or other error
+
+        return value if value else default
+
     def _load_config(self) -> RAGConfig:
-        """Load configuration from environment variables."""
+        """Load configuration from environment variables or Streamlit secrets."""
         return RAGConfig(
-            openai_api_key=os.getenv("OPENAI_API_KEY", ""),
-            openai_model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
-            openai_temperature=float(os.getenv("OPENAI_TEMPERATURE", "0.1")),
-            embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
-            chunk_size=int(os.getenv("CHUNK_SIZE", "500")),
-            chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "100")),
-            vector_store_path=os.getenv("VECTOR_STORE_PATH", "./chroma_db"),
-            collection_name=os.getenv("COLLECTION_NAME", "meeting_documents"),
-            search_k=int(os.getenv("SEARCH_K", "2")),
-            score_threshold=float(os.getenv("SCORE_THRESHOLD", "0.3")),
-            data_directory=os.getenv("DATA_DIRECTORY", "data")
+            openai_api_key=self._get_config_value("OPENAI_API_KEY"),
+            openai_model=self._get_config_value("OPENAI_MODEL", "gpt-3.5-turbo"),
+            openai_temperature=float(self._get_config_value("OPENAI_TEMPERATURE", "0.1")),
+            embedding_model=self._get_config_value("EMBEDDING_MODEL", "text-embedding-3-small"),
+            chunk_size=int(self._get_config_value("CHUNK_SIZE", "500")),
+            chunk_overlap=int(self._get_config_value("CHUNK_OVERLAP", "100")),
+            vector_store_path=self._get_config_value("VECTOR_STORE_PATH", "./chroma_db"),
+            collection_name=self._get_config_value("COLLECTION_NAME", "meeting_documents"),
+            search_k=int(self._get_config_value("SEARCH_K", "2")),
+            score_threshold=float(self._get_config_value("SCORE_THRESHOLD", "0.3")),
+            data_directory=self._get_config_value("DATA_DIRECTORY", "data")
         )
     
     def get(self, key: str, default: Any = None) -> Any:
