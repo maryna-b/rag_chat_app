@@ -136,13 +136,16 @@ def main():
                     # Format the response
                     response_text = result["answer"]
                     
-                    # Add enhanced source information
+                    # Add enhanced source information with similarity scores
                     if result["sources"]:
                         response_text += "\n\n---\n**📚 Sources & Citations:**\n\n"
                         for i, source in enumerate(result["sources"], 1):
                             response_text += f"**[{i}] {source['filename']}**"
                             if source.get('chunk_id') != 'N/A':
                                 response_text += f" _(chunk {source['chunk_id']})_"
+                            # Add similarity score if available
+                            if source.get('similarity_score') is not None:
+                                response_text += f" - **{source['similarity_score']}% similarity**"
                             response_text += "\n"
                             response_text += f"> _{source['content_preview']}_\n\n"
                     else:

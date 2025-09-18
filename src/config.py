@@ -17,15 +17,15 @@ class RAGConfig:
     embedding_model: str = "text-embedding-3-small"
     
     # Document processing
-    chunk_size: int = 1000
-    chunk_overlap: int = 200
-    
+    chunk_size: int = 500
+    chunk_overlap: int = 100
+
     # Vector store
     vector_store_path: str = "./chroma_db"
     collection_name: str = "meeting_documents"
-    
+
     # Search settings
-    search_k: int = 3
+    search_k: int = 2
     score_threshold: float = 0.3  # Lower threshold for better retrieval (0.0 = perfect match)
     
     # Data settings
@@ -53,11 +53,11 @@ class ConfigurationManager(ConfigurationInterface):
             openai_model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
             openai_temperature=float(os.getenv("OPENAI_TEMPERATURE", "0.1")),
             embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
-            chunk_size=int(os.getenv("CHUNK_SIZE", "1000")),
-            chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "200")),
+            chunk_size=int(os.getenv("CHUNK_SIZE", "500")),
+            chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "100")),
             vector_store_path=os.getenv("VECTOR_STORE_PATH", "./chroma_db"),
             collection_name=os.getenv("COLLECTION_NAME", "meeting_documents"),
-            search_k=int(os.getenv("SEARCH_K", "3")),
+            search_k=int(os.getenv("SEARCH_K", "2")),
             score_threshold=float(os.getenv("SCORE_THRESHOLD", "0.3")),
             data_directory=os.getenv("DATA_DIRECTORY", "data")
         )
