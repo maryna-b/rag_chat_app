@@ -6,6 +6,13 @@ from dotenv import load_dotenv
 # Add src directory to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
+# Apply SQLite3 patch for ChromaDB compatibility on Streamlit Cloud
+try:
+    from src.sqlite_patch import patch_sqlite
+    patch_sqlite()
+except ImportError:
+    pass  # Patch not available, continue without it
+
 try:
     from src.factory import RAGSystemFactory
     from src.config import ConfigurationManager

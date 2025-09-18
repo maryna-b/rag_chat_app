@@ -111,3 +111,13 @@ SEARCH_K = "1"
 
 ### Step 4: Deploy
 Your app will automatically deploy and be publicly accessible while keeping your API key secure!
+
+## Troubleshooting Deployment
+
+### ChromaDB SQLite3 Issue
+If you see an SQLite3 version error during deployment, the app includes an automatic fix:
+- `pysqlite3-binary` dependency provides a newer SQLite3 version
+- Automatic SQLite3 patching for Streamlit Cloud compatibility
+- ChromaDB will work seamlessly without any additional configuration needed
+
+The deployment should work without any manual intervention!
