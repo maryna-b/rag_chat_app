@@ -24,8 +24,8 @@ def main():
         layout="wide"
     )
     
-    st.title("Chat with Your Meeting Documents")
-    st.markdown("Ask questions about your meeting transcripts and get accurate, source-cited answers!")
+    st.title("Chat with Your Documents")
+    st.markdown("Ask questions about your documents and get accurate, source-cited answers!")
     
     # Check configuration
     try:

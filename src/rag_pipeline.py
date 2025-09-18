@@ -101,29 +101,32 @@ Answer:"""
         """Query the RAG pipeline with a question."""
         if not self._qa_chain:
             self._create_qa_chain()
-        
+
         try:
             self._logger.debug(f"Processing query: {question}")
-            
-            # Get response from QA chain
+
+            # First get documents with similarity scores directly from vector store
+            docs_with_scores = self._vector_store_manager._vector_store.search_with_scores(question, k=self._config.search_k)
+
+            # Get response from QA chain using regular retrieval
             result = self._qa_chain({"query": question})
             source_docs = result.get("source_documents", [])
-            
+
             self._logger.debug(f"Search returned {len(source_docs)} source documents")
-            
+
             # Log source document details for debugging
             if source_docs:
                 for i, doc in enumerate(source_docs):
                     self._logger.debug(f"Source {i+1}: {doc.metadata.get('source', 'Unknown')} - {len(doc.page_content)} chars")
             else:
                 self._logger.warning("No source documents returned - this will result in no citations")
-            
-            # Format response with smart citation filtering
-            response = self._format_response_with_validation(result, source_docs, question)
+
+            # Format response with smart citation filtering and similarity scores
+            response = self._format_response_with_validation(result, source_docs, question, docs_with_scores)
             self._logger.info(f"Query processed successfully with {len(response['sources'])} relevant sources")
-            
+
             return response
-            
+
         except Exception as e:
             self._logger.error(f"Query processing failed: {question}", e)
             return {
@@ -133,15 +136,15 @@ Answer:"""
             }
     
     
-    def _format_response_with_validation(self, result: Dict, source_docs: list, question: str) -> Dict[str, Any]:
+    def _format_response_with_validation(self, result: Dict, source_docs: list, question: str, docs_with_scores: list = None) -> Dict[str, Any]:
         """Format response with smart citation validation."""
         answer = result["result"]
-        
+
         # Check if the answer indicates no relevant information was found
         no_info_indicators = [
             "don't have information",
             "no mention",
-            "not mentioned", 
+            "not mentioned",
             "no information",
             "cannot determine",
             "not possible to determine",
@@ -151,10 +154,10 @@ Answer:"""
             "no information about",
             "not mentioned in"
         ]
-        
+
         answer_lower = answer.lower()
         has_no_info = any(indicator in answer_lower for indicator in no_info_indicators)
-        
+
         if has_no_info:
             self._logger.debug("Answer indicates no relevant information found - filtering out citations")
             return {
@@ -162,7 +165,7 @@ Answer:"""
                 "sources": [],
                 "source_documents": []
             }
-        
+
         # Additional check: see if answer actually references content from the sources
         if source_docs:
             content_overlap = self._check_content_relevance(answer, source_docs, question)
@@ -173,9 +176,9 @@ Answer:"""
                     "sources": [],
                     "source_documents": []
                 }
-        
+
         # If answer seems to reference the context, include sources
-        return self._format_response(result, source_docs)
+        return self._format_response(result, source_docs, docs_with_scores)
     
     def _check_content_relevance(self, answer: str, source_docs: list, question: str) -> bool:
         """Check if the answer actually references content from the source documents."""
@@ -197,40 +200,67 @@ Answer:"""
         
         return False
     
-    def _format_response(self, result: Dict, source_docs: list) -> Dict[str, Any]:
-        """Format the response with detailed source information."""
+    def _format_response(self, result: Dict, source_docs: list, docs_with_scores: list = None) -> Dict[str, Any]:
+        """Format the response with detailed source information including similarity scores."""
         response = {
             "answer": result["result"],
             "sources": [],
             "source_documents": source_docs
         }
-        
+
+        # Create a mapping of document content to similarity scores if available
+        score_mapping = {}
+        if docs_with_scores:
+            for doc, score in docs_with_scores:
+                # Use content beginning as key to match with source_docs
+                content_key = doc.page_content[:100]
+                score_mapping[content_key] = score
+
         # Extract and deduplicate source information
         seen_sources = set()
-        
+
         for i, doc in enumerate(source_docs):
             content = doc.page_content.strip()
             filename = doc.metadata.get("source", "Unknown")
-            
+
             # Create a key to avoid duplicate sources from same file
             source_key = f"{filename}_{content[:50]}"
-            
+
             if source_key not in seen_sources:
                 seen_sources.add(source_key)
-                
+
                 # Create more detailed preview
                 preview = content[:200] + "..." if len(content) > 200 else content
-                
+
+                # Find similarity score for this document
+                similarity_score = None
+                content_key = content[:100]
+                if content_key in score_mapping:
+                    raw_score = score_mapping[content_key]
+                    if raw_score is not None:
+                        # Convert distance to similarity percentage (Chroma uses distance, lower = more similar)
+                        # Typical distance range is 0-2, so we convert to percentage
+                        similarity_percentage = max(0, (1 - raw_score / 2) * 100)
+                        similarity_score = round(similarity_percentage, 1)
+
                 source_info = {
                     "filename": filename,
                     "content_preview": preview,
                     "chunk_id": doc.metadata.get("chunk_id", "N/A"),
-                    "relevance_rank": i + 1
+                    "relevance_rank": i + 1,
+                    "similarity_score": similarity_score
                 }
                 response["sources"].append(source_info)
-        
+
+        # Sort sources by similarity score if available (highest first)
+        if any(source.get("similarity_score") is not None for source in response["sources"]):
+            response["sources"].sort(key=lambda x: x.get("similarity_score", 0), reverse=True)
+            # Update relevance rank after sorting
+            for i, source in enumerate(response["sources"]):
+                source["relevance_rank"] = i + 1
+
         # Log source information for debugging
-        self._logger.debug(f"Formatted {len(response['sources'])} unique sources")
-        
+        self._logger.debug(f"Formatted {len(response['sources'])} unique sources with similarity scores")
+
         return response
 

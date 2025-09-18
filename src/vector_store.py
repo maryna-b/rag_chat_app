@@ -98,9 +98,18 @@ class ChromaVectorStore(VectorStoreInterface):
         """Perform similarity search with similarity scores."""
         if self._vector_store is None:
             raise ValueError("Vector store not initialized")
-        
+
         try:
-            return self._vector_store.similarity_search_with_score(query, k=k)
+            # Try the correct method name for Chroma
+            if hasattr(self._vector_store, 'similarity_search_with_score'):
+                return self._vector_store.similarity_search_with_score(query, k=k)
+            elif hasattr(self._vector_store, 'similarity_search_with_relevance_scores'):
+                return self._vector_store.similarity_search_with_relevance_scores(query, k=k)
+            else:
+                # Fallback to regular search if scoring methods not available
+                self._logger.warning("Similarity scoring not available, falling back to regular search")
+                docs = self._vector_store.similarity_search(query, k=k)
+                return [(doc, None) for doc in docs]
         except Exception as e:
             self._logger.error(f"Search with scores failed for query: {query}", e)
             raise
