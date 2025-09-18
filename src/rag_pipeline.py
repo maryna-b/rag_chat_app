@@ -178,29 +178,55 @@ Answer:"""
                 }
 
         # If answer seems to reference the context, include sources
-        return self._format_response(result, source_docs, docs_with_scores)
+        return self._format_response(result, source_docs, docs_with_scores, question)
     
     def _check_content_relevance(self, answer: str, source_docs: list, question: str) -> bool:
         """Check if the answer actually references content from the source documents."""
         if not source_docs:
             return False
-        
-        # Extract key terms from the question (simple approach)
+
+        answer_lower = answer.lower().strip()
+
+        # Check for specific valid answer patterns that should always show sources
+        import re
+
+        # Pattern 1: Monetary values ($X, $X,XXX, $X.XX, etc.)
+        if re.search(r'\$[\d,]+(?:\.\d{2})?', answer):
+            return True
+
+        # Pattern 2: Percentages (X%, X.X%, etc.)
+        if re.search(r'\d+(?:\.\d+)?%', answer):
+            return True
+
+        # Pattern 3: Numbers with units (X users, X deals, X months, etc.)
+        if re.search(r'\d+(?:,\d{3})*\s+\w+', answer):
+            return True
+
+        # Pattern 4: Dates (Q1, Q2, 2024, January, etc.)
+        if re.search(r'\b(?:q[1-4]|january|february|march|april|may|june|july|august|september|october|november|december|\d{4})\b', answer_lower):
+            return True
+
+        # Pattern 5: Names (proper nouns, company names, etc.)
+        if re.search(r'\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\b', answer):
+            return True
+
+        # Extract key terms from the question for fallback check
         question_words = set(question.lower().split())
-        # Remove common words
         stop_words = {'who', 'what', 'where', 'when', 'why', 'how', 'is', 'are', 'was', 'were', 'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'up', 'about', 'into', 'through', 'during'}
         question_keywords = question_words - stop_words
-        
-        # Check if any source document contains keywords from the question AND the answer references those docs
+
+        # Fallback: Check if any source document contains keywords from the question
+        # AND the answer is either long enough OR contains specific factual content
         for doc in source_docs:
             doc_words = set(doc.page_content.lower().split())
-            # If document contains question keywords AND answer is longer than a simple "no info" response
-            if question_keywords.intersection(doc_words) and len(answer) > 50:
-                return True
-        
+            if question_keywords.intersection(doc_words):
+                # Accept if answer is substantive (longer) OR contains specific data patterns
+                if len(answer) > 50 or any(char in answer for char in ['$', '%', ':', '-', '•']):
+                    return True
+
         return False
     
-    def _format_response(self, result: Dict, source_docs: list, docs_with_scores: list = None) -> Dict[str, Any]:
+    def _format_response(self, result: Dict, source_docs: list, docs_with_scores: list = None, question: str = "") -> Dict[str, Any]:
         """Format the response with detailed source information including similarity scores."""
         response = {
             "answer": result["result"],
@@ -229,8 +255,8 @@ Answer:"""
             if source_key not in seen_sources:
                 seen_sources.add(source_key)
 
-                # Create more detailed preview
-                preview = content[:200] + "..." if len(content) > 200 else content
+                # Create more detailed preview with relevant excerpt
+                preview = self._extract_relevant_excerpt(content, question)
 
                 # Find similarity score for this document
                 similarity_score = None
@@ -252,10 +278,17 @@ Answer:"""
                 }
                 response["sources"].append(source_info)
 
-        # Sort sources by similarity score if available (highest first)
-        if any(source.get("similarity_score") is not None for source in response["sources"]):
-            response["sources"].sort(key=lambda x: x.get("similarity_score", 0), reverse=True)
-            # Update relevance rank after sorting
+        # Re-rank sources based on content relevance to the question
+        if response["sources"] and question:
+            for source in response["sources"]:
+                # Calculate content relevance score
+                content_relevance = self._calculate_content_relevance(source["content_preview"], question)
+                source["content_relevance"] = content_relevance
+
+            # Sort by content relevance first, then by similarity score
+            response["sources"].sort(key=lambda x: (x.get("content_relevance", 0), x.get("similarity_score", 0)), reverse=True)
+
+            # Update relevance rank after re-ranking
             for i, source in enumerate(response["sources"]):
                 source["relevance_rank"] = i + 1
 
@@ -263,4 +296,127 @@ Answer:"""
         self._logger.debug(f"Formatted {len(response['sources'])} unique sources with similarity scores")
 
         return response
+
+    def _extract_relevant_excerpt(self, content: str, question: str) -> str:
+        """Extract the most relevant excerpt from document content based on the question."""
+        # Split content into sentences
+        sentences = content.replace('\n', ' ').split('. ')
+
+        # Extract key terms from the question
+        question_words = set(question.lower().split())
+        stop_words = {'who', 'what', 'where', 'when', 'why', 'how', 'is', 'are', 'was', 'were',
+                     'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+                     'of', 'with', 'by', 'from', 'up', 'about', 'into', 'through', 'during',
+                     'did', 'does', 'do', 'has', 'have', 'had', 'will', 'would', 'could', 'should'}
+        question_keywords = question_words - stop_words
+
+        # Score each sentence based on keyword overlap
+        sentence_scores = []
+        for i, sentence in enumerate(sentences):
+            sentence_words = set(sentence.lower().split())
+            # Count keyword matches
+            matches = len(question_keywords.intersection(sentence_words))
+            # Prefer sentences with multiple keywords
+            score = matches * matches if matches > 0 else 0
+            sentence_scores.append((score, i, sentence.strip()))
+
+        # Sort by score (highest first)
+        sentence_scores.sort(key=lambda x: x[0], reverse=True)
+
+        # Get the best sentences
+        relevant_sentences = []
+        for score, idx, sentence in sentence_scores[:3]:  # Top 3 sentences
+            if score > 0 and sentence:  # Only include sentences with keyword matches
+                relevant_sentences.append(sentence)
+
+        if relevant_sentences:
+            # Join the most relevant sentences
+            excerpt = '. '.join(relevant_sentences)
+            if len(excerpt) > 300:
+                excerpt = excerpt[:300] + "..."
+            return excerpt
+        else:
+            # Fallback to beginning of content if no relevant sentences found
+            return content[:200] + "..." if len(content) > 200 else content
+
+    def _calculate_content_relevance(self, content: str, question: str) -> float:
+        """Calculate how relevant the content is to answering the specific question."""
+        if not content or not question:
+            return 0.0
+
+        content_lower = content.lower()
+        question_lower = question.lower()
+
+        # Detect if content is mostly header/metadata vs actual content
+        header_indicators = ['date:', 'attendees:', 'prepared by:', 'overview:', 'meeting –', 'review –']
+        is_mostly_header = sum(1 for indicator in header_indicators if indicator in content_lower) >= 2
+
+        # If content is mostly headers, penalize heavily
+        if is_mostly_header and len(content.strip()) < 200:
+            # Still check for some keyword matches but cap the score low
+            question_words = set(question_lower.split())
+            stop_words = {'who', 'what', 'where', 'when', 'why', 'how', 'is', 'are', 'was', 'were',
+                         'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+                         'of', 'with', 'by', 'from', 'up', 'about', 'into', 'through', 'during',
+                         'did', 'does', 'do', 'has', 'have', 'had', 'will', 'would', 'could', 'should'}
+            question_keywords = question_words - stop_words
+            content_words = set(content_lower.split())
+
+            if question_keywords:
+                matches = len(question_keywords.intersection(content_words))
+                basic_overlap = matches / len(question_keywords)
+                return round(min(0.3, basic_overlap), 3)  # Cap header content at 30%
+            return 0.1
+
+        # For actual content, use full scoring algorithm
+        question_words = set(question_lower.split())
+        stop_words = {'who', 'what', 'where', 'when', 'why', 'how', 'is', 'are', 'was', 'were',
+                     'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+                     'of', 'with', 'by', 'from', 'up', 'about', 'into', 'through', 'during',
+                     'did', 'does', 'do', 'has', 'have', 'had', 'will', 'would', 'could', 'should'}
+        question_keywords = question_words - stop_words
+
+        # Extract content words
+        content_words = set(content_lower.split())
+
+        # Calculate keyword overlap
+        if not question_keywords:
+            return 0.0
+
+        matches = len(question_keywords.intersection(content_words))
+        keyword_overlap = matches / len(question_keywords)
+
+        # Bonus for action words that indicate actual answers
+        action_bonus = 0.0
+        action_patterns = ['suggested', 'recommended', 'proposed', 'mentioned', 'discussed', 'decided',
+                          'concluded', 'agreed', 'requested', 'asked for', 'wanted', 'needed']
+
+        if any(action in content_lower for action in action_patterns):
+            action_bonus = 0.4  # Strong bonus for content that shows actions/decisions
+
+        # Check for exact phrases or specific patterns
+        phrase_bonus = 0.0
+        question_phrases = []
+
+        # Extract meaningful phrases from question (2-3 word combinations)
+        q_words = question_lower.split()
+        for i in range(len(q_words) - 1):
+            phrase = f"{q_words[i]} {q_words[i+1]}"
+            if phrase not in ['what was', 'how did', 'who is', 'where is', 'when was', 'which feature', 'during the']:
+                question_phrases.append(phrase)
+
+        for phrase in question_phrases:
+            if phrase in content_lower:
+                phrase_bonus += 0.2  # Reduced from 0.3 to balance with action bonus
+
+        # Check for numerical data if question asks for specific metrics
+        number_bonus = 0.0
+        if any(word in question_lower for word in ['rate', 'percentage', '%', 'number', 'amount', 'count']):
+            import re
+            if re.search(r'\d+\.?\d*%?', content):
+                number_bonus = 0.2
+
+        # Combine scores with action bonus being most important
+        total_score = min(1.0, keyword_overlap + action_bonus + phrase_bonus + number_bonus)
+        return round(total_score, 3)
 

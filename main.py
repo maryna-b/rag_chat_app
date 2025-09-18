@@ -143,9 +143,12 @@ def main():
                             response_text += f"**[{i}] {source['filename']}**"
                             if source.get('chunk_id') != 'N/A':
                                 response_text += f" _(chunk {source['chunk_id']})_"
-                            # Add similarity score if available
+                            # Add similarity and content relevance scores if available
                             if source.get('similarity_score') is not None:
                                 response_text += f" - **{source['similarity_score']}% similarity**"
+                            if source.get('content_relevance') is not None:
+                                relevance_pct = round(source['content_relevance'] * 100, 1)
+                                response_text += f" - **{relevance_pct}% content match**"
                             response_text += "\n"
                             response_text += f"> _{source['content_preview']}_\n\n"
                     else:
@@ -170,7 +173,7 @@ def main():
     
     # Footer
     st.markdown("---")
-    st.markdown("**System Status:** ✅ Refactored RAG system active with SOLID principles!")
+    st.markdown("**System Status:** ✅ RAG system active!")
 
 if __name__ == "__main__":
     main()
